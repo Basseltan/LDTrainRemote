@@ -24,9 +24,12 @@ pio device monitor -b 115200
 
 ## Architecture
 
-**Main entry point**: `src/main.cpp`
-- Single-mode implementation: interactive control via buttons and potentiometer
-- On connection, hub name is automatically set to "DavidTrainHub"
+**Main entry point**: `src/main.cpp` — single-file project, all logic lives here.
+
+**MyHub class** (defined at top of `main.cpp`): Custom subclass of `Lpf2Hub` that adds Duplo Train-specific methods missing from the base library. These send raw BLE byte commands:
+- `activateBaseSpeaker()` / `playSound(byte)` — sound playback via raw BLE writes
+- `activateRgbLight()` / `setLedColor(Color)` — LED control via raw BLE writes
+- Source: adapted from [legoino issue #44](https://github.com/corneliusmunz/legoino/issues/44#issuecomment-985384328)
 
 **BLE connection flow** (must follow this pattern):
 ```cpp
@@ -35,17 +38,23 @@ myHub.init();  // In setup(), starts BLE scan
 if (myHub.isConnecting()) {
     myHub.connectHub();
     if (myHub.isConnected()) {
-        // Hub name is set to "DavidTrainHub" here
-        // Ready for commands
+        myHub.setHubName("DavidTrainHub");
+        myHub.activatePortDevice(COLOR, colorSensorCallback);  // Enable action bricks
     }
 }
 ```
 
 **Vendored Legoino library**: `lib/legoino-master/`
-- Provides `Lpf2Hub` class for LEGO Powered UP hub communication
-- Key APIs: `setBasicMotorSpeed()`, `setLedColor()`, `playSound()`, `stopBasicMotor()`
-- Uses NimBLE-Arduino for BLE connectivity
+- Provides base `Lpf2Hub` class for LEGO Powered UP hub communication
 - Do not convert to remote dependency; referenced via `lib_extra_dirs` in platformio.ini
+- **Patched for NimBLE 2.x compatibility** in `Lpf2Hub.cpp` (originally written for NimBLE 1.x):
+  - BLE scan uses `getResults()` (blocking) instead of `start()` (non-blocking in 2.x)
+  - Scan duration converted from seconds to milliseconds (NimBLE 2.x API change)
+  - Scan callbacks use both `onDiscovered()` and `onResult()` (NimBLE 2.x split)
+  - `_isConnecting` set before `stop()` to prevent race condition with main task
+  - `clearResults()` called before each scan to avoid duplicate filtering
+
+**Auto-reconnect**: The `loop()` tracks connection state via `gWasConnected` flag. On disconnect, it automatically calls `myHub.init()` to restart BLE scanning.
 
 ## Hardware Pin Mapping
 
@@ -56,83 +65,71 @@ if (myHub.isConnecting()) {
 | 27 | BTN_WASSER |
 | 14 | BTN_STOP |
 | 12 | PTI_SPEED (potentiometer) |
-| 16 | LED_ONBOARD (status indicator) |
+| 16 | LED_ONBOARD (not used) |
 | 32 | BAT_VOLTAGE (battery monitoring via ADC) |
-| 33 | LED_LOW_BAT (low battery warning) |
+| 33 | LED_LOW_BAT (multi-purpose status/battery LED) |
 
-**Status LED**: GPIO 33 (LED_LOW_BAT - multi-purpose indicator)
-- Solid ON: Disconnected
-- Fast blink (100ms): Connecting to hub
-- Slow blink (500ms): Connected to hub
-- Very fast blink (50ms): **Battery low** (overrides connection status)
+**Status LED** (GPIO 33): Solid ON = disconnected, fast blink (100ms) = connecting, slow blink (500ms) = connected, very fast blink (50ms) = battery low (overrides connection status).
 
-Note: Onboard LED (GPIO 16) is not used.
+**Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, cutoff at 3.0V for 18650 Li-Ion.
 
-**Battery Monitoring**: GPIO 32 (ADC input with voltage divider)
-- Voltage divider: 2x 220kOhm resistors (divides battery voltage by 2)
-- Cutoff voltage: 3.0V (typical for 18650 Li-Ion)
-- Check interval: 5 seconds
-- Warning via LED_LOW_BAT (GPIO 33) very fast blink when voltage < 3.0V
-
-Potentiometer maps ADC to speed (-100 to 100) with a deadzone of ±20 around center. ADC is configured for 12-bit resolution in `setup()`.
-
-**Potentiometer Calibration**: Hardware calibration constants in `handlePoti()`:
-- `POT_MIN = 1126` - ADC value at minimum position (maps to -100)
-- `POT_MAX = 2969` - ADC value at maximum position (maps to +100)
-- Adjust these values if you get a different speed range than ±100
+**Potentiometer** (GPIO 12): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1126` / `POT_MAX=2969` in `handlePoti()` — adjust if hardware gives different range.
 
 ## Code Structure
 
-The code runs in interactive mode with four main handlers called from `loop()`:
+The `loop()` calls these handlers when connected:
 
-**`handleStatusLed()`** - Multi-purpose LED status indicator (GPIO 33):
-- Uses `millis()` for timing to avoid blocking
-- Shows connection status: solid ON (disconnected), fast blink (connecting), slow blink (connected)
-- **Battery warning has priority**: Very fast blink (50ms) when `gBatteryLow` is true
-- Combines connection status and battery warning in one LED
+**`handleButtons()`** — Processes button events using Bounce2 (50ms debounce):
+- Music: plays `HORN` sound
+- Light: cycles through LED colors (11 colors via `getNextColor()`)
+- Water: plays `WATER_REFILL` sound
+- Stop: stops motor, plays `BRAKE`, sets **stop latch** (`gStopLatch`) — poti must return to center (speed=0) before new speed is accepted
 
-**`checkBatteryVoltage()`** - Battery voltage monitoring:
-- Reads ADC every 5 seconds
-- Converts ADC value to actual battery voltage (accounting for voltage divider)
-- Sets `gBatteryLow` flag when voltage < 3.0V
-- Prints battery info to serial for debugging
+**`handlePoti()`** — Reads potentiometer and controls motor speed:
+- Skipped during refueling (`gRefueling` flag)
+- Auto-plays `STATION_DEPARTURE` when transitioning from stop to forward
+- Respects stop latch: ignores input until poti returns to center after STOP
 
-**`handleButtons()`** - Processes button events using Bounce2:
-- Music button: plays `HORN` sound
-- Light button: cycles through LED colors (11 colors via `getNextColor()`)
-- Water button: plays `WATER_REFILL` sound
-- Stop button: stops motor (sets speed to 0) and plays `BRAKE` sound
+**`colorSensorCallback()`** — BLE notification callback for Duplo Train color sensor:
+- Consensus-based detection: requires `CONSECUTIVE_THRESHOLD` (4) identical consecutive readings before triggering
+- 3-second cooldown (`COLOR_COOLDOWN`) between actions to prevent re-triggering
+- Ignores BLACK/NONE (normal track surface)
 
-**`handlePoti()`** - Reads potentiometer and controls motor speed:
-- Applies ±20 deadzone around center to prevent jitter
-- Auto-plays `STATION_DEPARTURE` sound when transitioning from stop to forward motion
-- Updates global `gSpeed` variable tracked for stop button
+**Action brick colors** (triggered by color sensor on track):
+| Color | Action |
+|-------|--------|
+| RED | Full stop (with stop latch) |
+| BLUE | Refueling: stop for 5 seconds, play water sound, then auto-resume at previous speed |
+| YELLOW | Horn sound |
+| GREEN | Reverse direction |
+| WHITE | Cycle hub LED color |
 
-**Auto-reconnect**: The `loop()` tracks connection state via `gWasConnected` flag. On disconnect, it automatically calls `myHub.init()` to restart BLE scanning.
+**`handleStatusLed()`** / **`checkBatteryVoltage()`** — Run every loop iteration regardless of connection state.
+
+**Command rate limiting**: `ensureCommandInterval()` enforces 150ms minimum between hub BLE commands to prevent overload. Uses `delay()` to pad if needed.
 
 ## Available Sound Effects
 
 From `DuploTrainBaseSound` enum (in `Lpf2HubConst.h`):
-- `BRAKE = 3`
-- `STATION_DEPARTURE = 5`
-- `WATER_REFILL = 7`
-- `HORN = 9`
+- `BRAKE = 3`, `STATION_DEPARTURE = 5`, `WATER_REFILL = 7`, `HORN = 9`
 
 Used via `myHub.playSound((byte)DuploTrainBaseSound::SOUND_NAME)`.
 
 ## Dependencies (from platformio.ini)
 
-- `h2zero/NimBLE-Arduino@^1.4.2` - BLE library
-- `thomasfredericks/Bounce2@^2.72` - Button debouncing (25ms interval)
+- `h2zero/NimBLE-Arduino@^2.3.7` — BLE library
+- `thomasfredericks/Bounce2@^2.72` — Button debouncing (50ms interval)
+- `jchristensen/movingAvg@^2.3.0` — Potentiometer smoothing
 
 Note: `lib_ldf_mode = chain+` is used; changes to library layout may affect linking.
 
 ## Working with Motors
 
-Use `myHub.setBasicMotorSpeed(port, speed)` for Duplo Train motor control. Speed range is -100 to 100. The code currently hardcodes `port = (byte)PoweredUpHubPort::A`. For more advanced motors (Tacho/Absolute), see `lib/legoino-master/README.md`.
+Use `myHub.setBasicMotorSpeed(port, speed)` for Duplo Train motor control. Speed range is -100 to 100. Port is hardcoded to `PoweredUpHubPort::A`.
 
 ## When Making Changes
 
 - Run `pio run -e nodemcu-32s` to verify build
 - BLE/motor changes require hardware testing; check serial logs for hub connect and motor commands
 - Ask before upgrading NimBLE or Legoino library versions
+- When adding new hub commands, wrap with `ensureCommandInterval()` to respect rate limiting
