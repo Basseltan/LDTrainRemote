@@ -75,13 +75,27 @@ unsigned long gRefuelStart = 0;
 int gRefuelResumeSpeed = 0;
 const unsigned long REFUEL_DURATION = 5000;  // 5 seconds
 
-// Color sensor debouncing: consensus-based detection + cooldown
-// Requires multiple consecutive identical readings to trigger (filters track noise)
-int gConsecutiveColor = -1;       // Color currently being tracked (-1 = none)
-int gConsecutiveCount = 0;        // How many consecutive times we've seen it
-const int CONSECUTIVE_THRESHOLD = 4;  // Require 4 consecutive identical readings to trigger
+// Color sensor detection: sliding window with majority vote and per-color thresholds.
+// The Duplo Train color sensor is very noisy — on normal track it reads green (~40%),
+// blue (~34%), yellow (~23%) with occasional BLACK. RED and WHITE rarely appear in noise.
+// Per-color thresholds prevent false triggers from noise while allowing distinctive colors.
+const int COLOR_WINDOW_SIZE = 16;      // Circular buffer size (smaller = faster response)
+int gColorWindow[COLOR_WINDOW_SIZE];   // Circular buffer of non-BLACK color readings
+int gColorWindowIdx = 0;              // Next write position
+int gColorWindowCount = 0;            // How many entries filled (0..COLOR_WINDOW_SIZE)
 unsigned long gLastColorAction = 0;
 const unsigned long COLOR_COOLDOWN = 3000;  // Ignore sensor for 3 seconds after action
+int gBlackCount = 0;                   // Consecutive BLACK readings (for diagnostics)
+unsigned long gStationarySince = 0;    // When speed last became 0 (0 = currently moving)
+const unsigned long STATIONARY_SUPPRESS_DELAY = 5000;  // Suppress color after 5s stationary
+
+// Per-color trigger thresholds (out of COLOR_WINDOW_SIZE readings in window)
+// Noise while moving: green ~35%, blue ~33%, yellow ~30%, red ~0%, white ~1%
+// Noise while stopped: green ~0%, blue ~60%, yellow ~40% (different profile!)
+// Distinctive colors (RED/WHITE) are checked independently — they don't need to be dominant.
+const int THRESHOLD_RED = 1;           // 6% — never appears in noise, may get only 1 reading at high speed
+const int THRESHOLD_WHITE = 4;         // 25% — appears in noise ~5% near colored bricks, need higher bar
+const int THRESHOLD_NOISE = 12;        // 75% — green/blue/yellow need strong dominance over noise
 
 // LED status indicator state (now using LED_LOW_BAT for both status and battery warning)
 unsigned long gLedLastToggle = 0;
@@ -133,53 +147,141 @@ void colorSensorCallback(void *hub, byte portNumber, DeviceType deviceType, uint
   {
     int color = myHubRef->parseColor(pData);
 
-    // Ignore BLACK/NONE (normal track surface) and reset consecutive counter
-    if (color == (byte)BLACK || color == (byte)NONE)
+    // Stationary noise suppression: when stopped, the noise profile shifts to ~60% blue
+    // / ~40% yellow, which can cause false triggers. Clear window on transition to
+    // speed 0 so noise can't build on old readings, then suppress after 5 seconds.
+    if (gSpeed == 0)
     {
-      gConsecutiveColor = -1;
-      gConsecutiveCount = 0;
+      if (gStationarySince == 0) {
+        gStationarySince = millis();
+        // Clear window on transition to stopped
+        gColorWindowIdx = 0;
+        gColorWindowCount = 0;
+      }
+      if (millis() - gStationarySince > STATIONARY_SUPPRESS_DELAY) {
+        return;
+      }
+    } else {
+      gStationarySince = 0;  // Reset when moving
+    }
+
+    // Don't process color sensor when train is intentionally stopped (RED brick
+    // or STOP button) or during refueling — prevents re-triggers on same brick
+    if (gStopLatch || gRefueling)
+    {
       return;
     }
+
+    // Track BLACK readings for diagnostics, don't add to window
+    if (color == (byte)BLACK || color == (byte)NONE)
+    {
+      gBlackCount++;
+      return;
+    }
+    gBlackCount = 0;  // Reset on any non-BLACK reading
+
+    Serial.print("COLOR: ");
+    Serial.print(COLOR_STRING[color]);
 
     // Cooldown: ignore sensor readings for 3 seconds after last action
     if (millis() - gLastColorAction < COLOR_COOLDOWN)
     {
+      Serial.println(" (cooldown)");
       return;
     }
 
-    // Consensus-based detection: require multiple consecutive identical readings
-    // This filters out random noise from the track surface
-    if (color == gConsecutiveColor)
-    {
-      gConsecutiveCount++;
+    // Add to sliding window (circular buffer)
+    gColorWindow[gColorWindowIdx] = color;
+    gColorWindowIdx = (gColorWindowIdx + 1) % COLOR_WINDOW_SIZE;
+    if (gColorWindowCount < COLOR_WINDOW_SIZE) gColorWindowCount++;
+
+    // Count occurrences of each color in the window
+    int counts[NUM_COLORS] = {0};
+    for (int i = 0; i < gColorWindowCount; i++) {
+      int c = gColorWindow[i];
+      if (c >= 0 && c < NUM_COLORS) counts[c]++;
     }
-    else
+
+    // Find the dominant color (for noise color check)
+    int bestColor = -1;
+    int bestCount = 0;
+    for (int i = 1; i < NUM_COLORS; i++) {  // Skip BLACK (0)
+      if (counts[i] > bestCount) {
+        bestCount = counts[i];
+        bestColor = i;
+      }
+    }
+
+    // Check each color against its individual threshold.
+    // Distinctive colors (RED/WHITE) are checked first — they don't need to be
+    // the dominant color to trigger, since they never appear in noise.
+    // Noise colors (GREEN/BLUE/YELLOW) only trigger if dominant at high threshold.
+    int triggeredColor = -1;
+    int triggeredCount = 0;
+    int triggeredThreshold = 0;
+
+    if (counts[(byte)RED] >= THRESHOLD_RED) {
+      triggeredColor = (byte)RED;
+      triggeredCount = counts[(byte)RED];
+      triggeredThreshold = THRESHOLD_RED;
+    } else if (counts[(byte)WHITE] >= THRESHOLD_WHITE) {
+      triggeredColor = (byte)WHITE;
+      triggeredCount = counts[(byte)WHITE];
+      triggeredThreshold = THRESHOLD_WHITE;
+    } else if (bestCount >= THRESHOLD_NOISE) {
+      triggeredColor = bestColor;
+      triggeredCount = bestCount;
+      triggeredThreshold = THRESHOLD_NOISE;
+    }
+
+    Serial.print(" window=[");
+    for (int i = 1; i < NUM_COLORS; i++) {
+      if (counts[i] > 0) {
+        Serial.print(COLOR_STRING[i]);
+        Serial.print(":");
+        Serial.print(counts[i]);
+        Serial.print(" ");
+      }
+    }
+    Serial.print("] best=");
+    Serial.print(bestColor >= 0 ? COLOR_STRING[bestColor] : "?");
+    Serial.print("(");
+    Serial.print(bestCount);
+    Serial.print("/");
+    Serial.print(THRESHOLD_NOISE);
+    Serial.print(")");
+    // Show distinctive color counts if present
+    if (counts[(byte)RED] > 0) {
+      Serial.print(" R:");
+      Serial.print(counts[(byte)RED]);
+      Serial.print("/");
+      Serial.print(THRESHOLD_RED);
+    }
+    if (counts[(byte)WHITE] > 0) {
+      Serial.print(" W:");
+      Serial.print(counts[(byte)WHITE]);
+      Serial.print("/");
+      Serial.print(THRESHOLD_WHITE);
+    }
+    Serial.println();
+
+    // No color reached its threshold
+    if (triggeredColor < 0)
     {
-      // Different color detected - restart counting
-      gConsecutiveColor = color;
-      gConsecutiveCount = 1;
-      Serial.print("Color sensor: new color candidate ");
-      Serial.print(COLOR_STRING[color]);
-      Serial.println(" (1/" + String(CONSECUTIVE_THRESHOLD) + ")");
       return;
     }
 
-    // Not enough consecutive readings yet
-    if (gConsecutiveCount < CONSECUTIVE_THRESHOLD)
-    {
-      Serial.println("Color sensor: " + String(COLOR_STRING[color]) + " (" + String(gConsecutiveCount) + "/" + String(CONSECUTIVE_THRESHOLD) + ")");
-      return;
-    }
+    // Triggered! Clear window and start cooldown
+    gColorWindowIdx = 0;
+    gColorWindowCount = 0;
+    gLastColorAction = millis();
+    color = triggeredColor;  // Use the triggered color, not the last reading
 
-    // We have enough consecutive readings - trigger action!
-    gConsecutiveColor = -1;
-    gConsecutiveCount = 0;
-    gLastColorAction = millis();  // Start cooldown
-
-    Serial.print("Action brick confirmed: ");
+    Serial.print(">>> Action brick triggered: ");
     Serial.println(COLOR_STRING[color]);
 
     // Set hub LED to detected color
+    ensureCommandInterval();
     myHubRef->setLedColor((Color)color);
 
     // Execute action based on action brick color
@@ -188,7 +290,9 @@ void colorSensorCallback(void *hub, byte portNumber, DeviceType deviceType, uint
       // Red: Stop - train stops completely
       gSpeed = 0;
       gStopLatch = true;
+      ensureCommandInterval();
       myHubRef->setBasicMotorSpeed(port, 0);
+      ensureCommandInterval();
       myHubRef->playSound((byte)DuploTrainBaseSound::BRAKE);
     }
     else if (color == (byte)BLUE)
@@ -196,7 +300,9 @@ void colorSensorCallback(void *hub, byte portNumber, DeviceType deviceType, uint
       // Blue: Refueling - stop, tank sound, resume after 5 seconds
       gRefuelResumeSpeed = gSpeed;
       gSpeed = 0;
+      ensureCommandInterval();
       myHubRef->setBasicMotorSpeed(port, 0);
+      ensureCommandInterval();
       myHubRef->playSound((byte)DuploTrainBaseSound::WATER_REFILL);
       gRefueling = true;
       gRefuelStart = millis();
@@ -204,20 +310,25 @@ void colorSensorCallback(void *hub, byte portNumber, DeviceType deviceType, uint
     else if (color == (byte)YELLOW)
     {
       // Yellow: Signal - horn sound only
+      ensureCommandInterval();
       myHubRef->playSound((byte)DuploTrainBaseSound::HORN);
     }
     else if (color == (byte)GREEN)
     {
       // Green: Direction change - stop and reverse
       gSpeed = -gSpeed;
+      ensureCommandInterval();
       myHubRef->setBasicMotorSpeed(port, 0);
+      ensureCommandInterval();
       myHubRef->playSound((byte)DuploTrainBaseSound::STATION_DEPARTURE);
+      ensureCommandInterval();
       myHubRef->setBasicMotorSpeed(port, gSpeed);
     }
     else if (color == (byte)WHITE)
     {
       // White: Light change - cycle hub LED color
       Color c = getNextColor();
+      ensureCommandInterval();
       myHubRef->setLedColor(c);
     }
   }
@@ -318,14 +429,14 @@ void checkBatteryVoltage()
   float pinVoltage = (adcValue * ADC_REFERENCE) / ADC_MAX;
   float batteryVoltage = pinVoltage * BAT_VOLTAGE_DIVIDER;
 
-  // Debug output
-  Serial.print("Battery: ADC=");
-  Serial.print(adcValue);
-  Serial.print(", Pin=");
-  Serial.print(pinVoltage, 2);
-  Serial.print("V, Bat=");
-  Serial.print(batteryVoltage, 2);
-  Serial.println("V");
+  // Debug output (commented out to reduce serial noise during color sensor debugging)
+  // Serial.print("Battery: ADC=");
+  // Serial.print(adcValue);
+  // Serial.print(", Pin=");
+  // Serial.print(pinVoltage, 2);
+  // Serial.print("V, Bat=");
+  // Serial.print(batteryVoltage, 2);
+  // Serial.println("V");
 
   // Check if battery is below cutoff voltage
   if (batteryVoltage < BAT_VOLTAGE_MIN) {
