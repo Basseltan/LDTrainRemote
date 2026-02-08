@@ -2,6 +2,19 @@
 #include <Lpf2HubConst.h> //legoino
 #include <Bounce2.h>      //bounce2
 #include <movingAvg.h>    //movingAvg
+#include <stdarg.h>       //for debugLog variadic function
+
+// WiFi/OTA/Telnet libraries (always available on ESP32, usage guarded by WIFI_ENABLED)
+#include <WiFi.h>
+#include <ArduinoOTA.h>
+#include <ESPTelnet.h>
+
+// Optional WiFi support: copy include/credentials.h.template to include/credentials.h
+// and fill in your WiFi credentials. Without credentials.h, WiFi/Telnet/OTA are disabled.
+#if __has_include("credentials.h")
+  #include "credentials.h"
+  #define WIFI_ENABLED
+#endif
 
 // new MyHub class extends Lpf2Hub with helper functions for our specific use case (color sensor, sounds, LED control)
 // taken from https://github.com/corneliusmunz/legoino/issues/44#issuecomment-985384328
@@ -78,13 +91,19 @@ unsigned long gLastCommandTime = 0;
 const unsigned long COMMAND_MIN_INTERVAL = 150;  // Minimum 150ms between commands
 
 // Battery monitoring (18650 Li-Ion with voltage divider 2x 220kOhm)
-const float BAT_VOLTAGE_MIN = 3.0;        // Cutoff voltage: 3.0V
+const float BAT_VOLTAGE_MIN = 3.5;        // Cutoff voltage: 3.0V
 const float BAT_VOLTAGE_DIVIDER = 2.0;    // Voltage divider ratio
 const float ADC_REFERENCE = 3.3;          // ESP32 ADC reference voltage
 const int ADC_MAX = 4095;                 // 12-bit ADC
 const unsigned long BAT_CHECK_INTERVAL = 5000;  // Check every 5 seconds
 unsigned long gLastBatCheck = 0;
 bool gBatteryLow = false;
+
+// WiFi / Telnet / OTA
+#ifdef WIFI_ENABLED
+ESPTelnet telnet;
+bool gWifiConnected = false;
+#endif
 
 // Ensure minimum time between hub commands to prevent overload
 void ensureCommandInterval()
@@ -98,6 +117,91 @@ void ensureCommandInterval()
 
   gLastCommandTime = millis();
 }
+
+// Debug logging: always prints to Serial, also to Telnet if connected
+void debugLog(const char* format, ...)
+{
+  char buf[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buf, sizeof(buf), format, args);
+  va_end(args);
+
+  Serial.println(buf);
+#ifdef WIFI_ENABLED
+  if (telnet.isConnected()) {
+    telnet.println(buf);
+  }
+#endif
+}
+
+#ifdef WIFI_ENABLED
+void setupWiFi()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.setAutoReconnect(true);
+
+  // ArduinoOTA setup
+  ArduinoOTA.setHostname("DuploTrainRemote");
+
+  ArduinoOTA.onStart([]() {
+    // Emergency stop motor before OTA update blocks CPU
+    gSpeed = 0;
+    if (myHub.isConnected()) {
+      myHub.setBasicMotorSpeed(port, 0);
+    }
+    Serial.println("OTA: update starting...");
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("OTA: update complete");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("OTA: %u%%\r\n", (progress / (total / 100)));
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("OTA: error %u\r\n", error);
+  });
+
+  ArduinoOTA.begin();
+
+  // Telnet setup
+  telnet.onConnect([](String ip) {
+    Serial.print("Telnet client connected from ");
+    Serial.println(ip);
+  });
+
+  telnet.onDisconnect([](String ip) {
+    Serial.print("Telnet client disconnected from ");
+    Serial.println(ip);
+  });
+
+  telnet.begin();
+
+  Serial.println("WiFi/OTA/Telnet initialized, connecting...");
+}
+
+void handleWiFi()
+{
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!gWifiConnected) {
+      gWifiConnected = true;
+      Serial.print("WiFi connected, IP: ");
+      Serial.println(WiFi.localIP());
+    }
+    ArduinoOTA.handle();
+    telnet.loop();
+  } else {
+    if (gWifiConnected) {
+      gWifiConnected = false;
+      Serial.println("WiFi disconnected");
+    }
+  }
+}
+#endif
 
 Color getNextColor()
 {
@@ -131,21 +235,18 @@ void handlePoti()
   if (gStopLatch) {
     if (speed == 0) {
       gStopLatch = false;
-      Serial.println("POT: returned to center - accepting speed again");
+      debugLog("POT: returned to center - accepting speed again");
     }
     return;
   }
 
   if (speed != gSpeed)
   {
-    Serial.print("POT: speed change ");
-    Serial.print(gSpeed);
-    Serial.print(" -> ");
-    Serial.println(speed);
+    debugLog("POT: speed change %d -> %d", gSpeed, speed);
 
     if (gSpeed == 0 && speed > 0)
     {
-      Serial.println("POT: transitioning 0->forward: play STATION_DEPARTURE");
+      debugLog("POT: transitioning 0->forward: play STATION_DEPARTURE");
       ensureCommandInterval();
       myHub.playSound((byte)DuploTrainBaseSound::STATION_DEPARTURE);
     }
@@ -205,18 +306,12 @@ void checkBatteryVoltage()
   float batteryVoltage = pinVoltage * BAT_VOLTAGE_DIVIDER;
 
   // Debug output
-  Serial.print("Battery: ADC=");
-  Serial.print(adcValue);
-  Serial.print(", Pin=");
-  Serial.print(pinVoltage, 2);
-  Serial.print("V, Bat=");
-  Serial.print(batteryVoltage, 2);
-  Serial.println("V");
+  debugLog("Battery: ADC=%d, Pin=%.2fV, Bat=%.2fV", adcValue, pinVoltage, batteryVoltage);
 
   // Check if battery is below cutoff voltage
   if (batteryVoltage < BAT_VOLTAGE_MIN) {
     if (!gBatteryLow) {
-      Serial.println("WARNING: Battery voltage low!");
+      debugLog("WARNING: Battery voltage low!");
       gBatteryLow = true;
     }
   } else {
@@ -230,7 +325,7 @@ void handleButtons()
   {
     if(pbMusic.fell())
     {
-      Serial.println("Button MUSIC pressed - playing HORN");
+      debugLog("Button MUSIC pressed - playing HORN");
       ensureCommandInterval();
       myHub.playSound((byte)DuploTrainBaseSound::HORN);
     }
@@ -240,7 +335,7 @@ void handleButtons()
     if(pbLight.fell())
     {
       Color c = getNextColor();
-      Serial.print("Button LIGHT pressed - setting LED color to "); Serial.println((int)c);
+      debugLog("Button LIGHT pressed - setting LED color to %d", (int)c);
       ensureCommandInterval();
       myHub.setLedColor(c);
     }
@@ -249,7 +344,7 @@ void handleButtons()
   {
     if(pbWater.fell())
     {
-      Serial.println("Button WATER pressed - playing WATER_REFILL");
+      debugLog("Button WATER pressed - playing WATER_REFILL");
       ensureCommandInterval();
       myHub.playSound((byte)DuploTrainBaseSound::WATER_REFILL);
     }
@@ -258,7 +353,7 @@ void handleButtons()
   {
     if(pbStop.fell())
     {
-      Serial.println("Button STOP pressed - playing BRAKE and stopping motor");
+      debugLog("Button STOP pressed - playing BRAKE and stopping motor");
       gSpeed = 0;
       gStopLatch = true;  // Block poti until it returns to center
       ensureCommandInterval();
@@ -297,10 +392,18 @@ void setup() {
   avgPotiSpeed.begin();
 
   myHub.init();
-  Serial.println("myHub.init() called - BLE scan started");
+  debugLog("myHub.init() called - BLE scan started");
+
+#ifdef WIFI_ENABLED
+  setupWiFi();
+#endif
 }
 
 void loop() {
+#ifdef WIFI_ENABLED
+  handleWiFi();
+#endif
+
   // Monitor battery voltage (affects LED status)
   checkBatteryVoltage();
 
@@ -312,30 +415,28 @@ void loop() {
     myHub.connectHub();
     if (myHub.isConnected()) {
       char hubName[] = "DavidTrainHub";
-      Serial.println("Setting hub name to DavidTrainHub");
+      debugLog("Setting hub name to DavidTrainHub");
       ensureCommandInterval();
       myHub.setHubName(hubName);
-      Serial.println("Connected to HUB");
-      Serial.print("Hub address: ");
-      Serial.println(myHub.getHubAddress().toString().c_str());
-      Serial.print("Hub name: ");
-      Serial.println(myHub.getHubName().c_str());
+      debugLog("Connected to HUB");
+      debugLog("Hub address: %s", myHub.getHubAddress().toString().c_str());
+      debugLog("Hub name: %s", myHub.getHubName().c_str());
       // Activate speaker port for sound playback
       delay(200);
       ensureCommandInterval();
       myHub.activateBaseSpeaker();
-      Serial.println("Speaker activated");
+      debugLog("Speaker activated");
 
       gWasConnected = true;
       gSpeed = 0;  // Reset speed on new connection
     } else {
-      Serial.println("Failed to connect to HUB");
+      debugLog("Failed to connect to HUB");
     }
   }
 
   // Detect disconnection and trigger rescan
   if (gWasConnected && !myHub.isConnected() && !myHub.isConnecting()) {
-      Serial.println("Connection lost - restarting BLE scan...");
+      debugLog("Connection lost - restarting BLE scan...");
       gWasConnected = false;
       gSpeed = 0;
       myHub.init();

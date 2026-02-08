@@ -13,6 +13,7 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 - Status LED indicating connection state and battery level
 - Command rate limiting to prevent hub overload
 - Moving average filter for smooth potentiometer readings
+- Optional WiFi with Telnet debug output and OTA firmware updates
 
 ## Hardware
 
@@ -58,7 +59,22 @@ pio device monitor -b 115200
 - [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - BLE library
 - [Bounce2](https://github.com/thomasfredericks/Bounce2) - Button debouncing
 - [movingAvg](https://github.com/JChristensen/movingAvg) - Potentiometer smoothing
+- [ESPTelnet](https://github.com/LennartHennigs/ESPTelnet) - Telnet server for remote debug
 - [Legoino](https://github.com/Basseltan/legoino) - LEGO Powered UP library (vendored in `lib/`, fork with NimBLE 2.x patches)
+
+## WiFi / Telnet / OTA (optional)
+
+WiFi is optional and runs in the background. Train control works without WiFi.
+
+1. Copy `include/credentials.h.template` to `include/credentials.h`
+2. Fill in your WiFi SSID and password
+3. Build and upload — WiFi connects automatically
+
+With WiFi connected:
+- **Telnet** (port 23): All debug output is mirrored to Telnet clients (`telnet <ip>`)
+- **OTA**: Upload firmware over WiFi with `pio run -t upload --upload-port <ip>`
+
+Without `credentials.h`, WiFi/Telnet/OTA are excluded from the build entirely.
 
 ## Usage
 

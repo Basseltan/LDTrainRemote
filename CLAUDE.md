@@ -57,6 +57,14 @@ if (myHub.isConnecting()) {
 
 **Auto-reconnect**: The `loop()` tracks connection state via `gWasConnected` flag. On disconnect, it automatically calls `myHub.init()` to restart BLE scanning.
 
+**WiFi / Telnet / OTA** (optional, guarded by `#ifdef WIFI_ENABLED`):
+- Enabled by creating `include/credentials.h` from `include/credentials.h.template` with WiFi SSID/password
+- `__has_include("credentials.h")` at compile time sets `WIFI_ENABLED`; without it, WiFi code is excluded entirely
+- `setupWiFi()`: non-blocking `WiFi.begin()` with `setAutoReconnect(true)`, ArduinoOTA + ESPTelnet setup
+- `handleWiFi()`: called every loop iteration, handles OTA + Telnet when WiFi is connected
+- ArduinoOTA `onStart` callback stops motor as safety measure before CPU-blocking update
+- `debugLog(format, ...)`: printf-style function that outputs to Serial always, and to Telnet when connected
+
 ## Hardware Pin Mapping
 
 | Pin | Function |
@@ -72,9 +80,9 @@ if (myHub.isConnecting()) {
 
 **Status LED** (GPIO 33): Solid ON = disconnected, fast blink (100ms) = connecting, slow blink (500ms) = connected, very fast blink (50ms) = battery low (overrides connection status).
 
-**Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, cutoff at 3.0V for 18650 Li-Ion.
+**Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, warning at 3.5V for 18650 Li-Ion (AMS1117-3.3 regulator needs headroom).
 
-**Potentiometer** (GPIO 12): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1126` / `POT_MAX=2969` in `handlePoti()` — adjust if hardware gives different range.
+**Potentiometer** (GPIO 12): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1191` / `POT_MAX=2941` in `handlePoti()` — adjust if hardware gives different range.
 
 ## Code Structure
 
@@ -106,8 +114,9 @@ Used via `myHub.playSound((byte)DuploTrainBaseSound::SOUND_NAME)`.
 - `h2zero/NimBLE-Arduino@^2.3.7` — BLE library
 - `thomasfredericks/Bounce2@^2.72` — Button debouncing (50ms interval)
 - `jchristensen/movingAvg@^2.3.0` — Potentiometer smoothing
+- `lennarthennigs/ESPTelnet@^2.2.3` — Telnet server for remote debug output
 
-Note: `lib_ldf_mode = chain+` is used; changes to library layout may affect linking.
+Note: `lib_ldf_mode = deep+` is used to detect conditional includes (`__has_include` for WiFi).
 
 ## Working with Motors
 
@@ -119,3 +128,5 @@ Use `myHub.setBasicMotorSpeed(port, speed)` for Duplo Train motor control. Speed
 - BLE/motor changes require hardware testing; check serial logs for hub connect and motor commands
 - Ask before upgrading NimBLE or Legoino library versions
 - When adding new hub commands, wrap with `ensureCommandInterval()` to respect rate limiting
+- Use `debugLog()` instead of `Serial.print`/`println` for debug output (mirrors to Telnet)
+- WiFi credentials go in `include/credentials.h` (git-ignored); template at `include/credentials.h.template`
