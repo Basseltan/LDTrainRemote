@@ -39,12 +39,12 @@ if (myHub.isConnecting()) {
     myHub.connectHub();
     if (myHub.isConnected()) {
         myHub.setHubName("DavidTrainHub");
-        myHub.activatePortDevice(COLOR, colorSensorCallback);  // Enable action bricks
     }
 }
 ```
 
 **Vendored Legoino library**: `lib/legoino-master/`
+- Upstream: https://github.com/Basseltan/legoino (fork with NimBLE 2.x patches)
 - Provides base `Lpf2Hub` class for LEGO Powered UP hub communication
 - Do not convert to remote dependency; referenced via `lib_extra_dirs` in platformio.ini
 - **Patched for NimBLE 2.x compatibility** in `Lpf2Hub.cpp` (originally written for NimBLE 1.x):
@@ -53,6 +53,7 @@ if (myHub.isConnecting()) {
   - Scan callbacks use both `onDiscovered()` and `onResult()` (NimBLE 2.x split)
   - `_isConnecting` set before `stop()` to prevent race condition with main task
   - `clearResults()` called before each scan to avoid duplicate filtering
+  - `onDisconnect` callback signature updated with `int reason` parameter (NimBLE 2.x)
 
 **Auto-reconnect**: The `loop()` tracks connection state via `gWasConnected` flag. On disconnect, it automatically calls `myHub.init()` to restart BLE scanning.
 
@@ -86,23 +87,8 @@ The `loop()` calls these handlers when connected:
 - Stop: stops motor, plays `BRAKE`, sets **stop latch** (`gStopLatch`) — poti must return to center (speed=0) before new speed is accepted
 
 **`handlePoti()`** — Reads potentiometer and controls motor speed:
-- Skipped during refueling (`gRefueling` flag)
 - Auto-plays `STATION_DEPARTURE` when transitioning from stop to forward
 - Respects stop latch: ignores input until poti returns to center after STOP
-
-**`colorSensorCallback()`** — BLE notification callback for Duplo Train color sensor:
-- Consensus-based detection: requires `CONSECUTIVE_THRESHOLD` (4) identical consecutive readings before triggering
-- 3-second cooldown (`COLOR_COOLDOWN`) between actions to prevent re-triggering
-- Ignores BLACK/NONE (normal track surface)
-
-**Action brick colors** (triggered by color sensor on track):
-| Color | Action |
-|-------|--------|
-| RED | Full stop (with stop latch) |
-| BLUE | Refueling: stop for 5 seconds, play water sound, then auto-resume at previous speed |
-| YELLOW | Horn sound |
-| GREEN | Reverse direction |
-| WHITE | Cycle hub LED color |
 
 **`handleStatusLed()`** / **`checkBatteryVoltage()`** — Run every loop iteration regardless of connection state.
 

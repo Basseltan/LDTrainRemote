@@ -43,11 +43,11 @@ public:
     {
     }
 
-    void onDisconnect(BLEClient *bleClient)
+    void onDisconnect(BLEClient *bleClient, int reason)
     {
         _lpf2Hub->_isConnecting = false;
         _lpf2Hub->_isConnected = false;
-        log_d("disconnected client");
+        log_d("disconnected client, reason: %d", reason);
     }
 };
 

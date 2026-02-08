@@ -58,7 +58,7 @@ pio device monitor -b 115200
 - [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - BLE library
 - [Bounce2](https://github.com/thomasfredericks/Bounce2) - Button debouncing
 - [movingAvg](https://github.com/JChristensen/movingAvg) - Potentiometer smoothing
-- [Legoino](https://github.com/corneliusmunz/legoino) - LEGO Powered UP library (vendored in `lib/`)
+- [Legoino](https://github.com/Basseltan/legoino) - LEGO Powered UP library (vendored in `lib/`, fork with NimBLE 2.x patches)
 
 ## Usage
 
@@ -66,6 +66,10 @@ pio device monitor -b 115200
 2. Power on the Duplo Train (green button until it blinks)
 3. Wait for automatic BLE connection (LED changes to slow blink)
 4. Use potentiometer for speed, buttons for sounds and LED
+
+## Known Limitations
+
+- **Action Brick Color Detection**: The Duplo Train color sensor produces very noisy readings on normal track (mostly green, blue, yellow), making reliable detection of colored action bricks difficult. This feature is currently not implemented but planned for a future version. Experimental code is available on the `feature/color-sensor-detection` branch.
 
 ## License
 
