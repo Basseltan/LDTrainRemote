@@ -93,11 +93,12 @@ const unsigned long COMMAND_MIN_INTERVAL = 150;  // Minimum 150ms between comman
 // Battery monitoring (18650 Li-Ion with voltage divider 2x 220kOhm)
 const float BAT_VOLTAGE_MIN = 3.5;        // Cutoff voltage: 3.0V
 const float BAT_VOLTAGE_DIVIDER = 2.0;    // Voltage divider ratio
-const float ADC_REFERENCE = 3.3;          // ESP32 ADC reference voltage
+const float ADC_REFERENCE = 3.54;         // ESP32 ADC reference voltage (calibrated: 3.3 × 2.05/1.91)
 const int ADC_MAX = 4095;                 // 12-bit ADC
 const unsigned long BAT_CHECK_INTERVAL = 5000;  // Check every 5 seconds
 unsigned long gLastBatCheck = 0;
 bool gBatteryLow = false;
+movingAvg avgBatVoltage(50);  // Moving average over 50 readings to filter ADC outliers
 
 // WiFi / Telnet / OTA
 #ifdef WIFI_ENABLED
@@ -291,17 +292,19 @@ void handleStatusLed()
 
 void checkBatteryVoltage()
 {
+  // Feed ADC reading into moving average every loop iteration
+  int adcValue = avgBatVoltage.reading(analogRead(BAT_VOLTAGE));
+
   unsigned long now = millis();
 
-  // Check battery voltage periodically
+  // Only evaluate and log periodically
   if (now - gLastBatCheck < BAT_CHECK_INTERVAL) {
     return;
   }
 
   gLastBatCheck = now;
 
-  // Read ADC value and convert to actual battery voltage
-  int adcValue = analogRead(BAT_VOLTAGE);
+  // Convert averaged ADC value to actual battery voltage
   float pinVoltage = (adcValue * ADC_REFERENCE) / ADC_MAX;
   float batteryVoltage = pinVoltage * BAT_VOLTAGE_DIVIDER;
 
@@ -390,6 +393,7 @@ void setup() {
   pbStop.interval(50);
 
   avgPotiSpeed.begin();
+  avgBatVoltage.begin();
 
   myHub.init();
   debugLog("myHub.init() called - BLE scan started");

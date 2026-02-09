@@ -18,6 +18,9 @@ pio run -e wemosbat
 # Upload to device
 pio run -t upload -e nodemcu-32s
 
+# OTA upload (wemosbat_ota env has IP preconfigured)
+pio run -t upload -e wemosbat_ota
+
 # Serial monitor (115200 baud)
 pio device monitor -b 115200
 ```
@@ -80,7 +83,7 @@ if (myHub.isConnecting()) {
 
 **Status LED** (GPIO 33): Solid ON = disconnected, fast blink (100ms) = connecting, slow blink (500ms) = connected, very fast blink (50ms) = battery low (overrides connection status).
 
-**Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, warning at 3.5V for 18650 Li-Ion (AMS1117-3.3 regulator needs headroom).
+**Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, warning at 3.5V for 18650 Li-Ion (AMS1117-3.3 regulator needs headroom). ADC reference calibrated to 3.54V (chip-specific). Uses `movingAvg` over 50 readings (sampled every loop iteration) to filter ESP32 ADC outliers.
 
 **Potentiometer** (GPIO 12): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1191` / `POT_MAX=2941` in `handlePoti()` — adjust if hardware gives different range.
 
@@ -130,3 +133,7 @@ Use `myHub.setBasicMotorSpeed(port, speed)` for Duplo Train motor control. Speed
 - When adding new hub commands, wrap with `ensureCommandInterval()` to respect rate limiting
 - Use `debugLog()` instead of `Serial.print`/`println` for debug output (mirrors to Telnet)
 - WiFi credentials go in `include/credentials.h` (git-ignored); template at `include/credentials.h.template`
+
+## Known Limitations
+
+- **Action Brick Color Detection**: The Duplo Train color sensor produces very noisy readings on normal track, making reliable detection of colored action bricks difficult. Not implemented yet; experimental code is on the `feature/color-sensor-detection` branch.
