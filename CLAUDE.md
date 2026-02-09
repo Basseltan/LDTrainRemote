@@ -105,6 +105,10 @@ The `loop()` calls these handlers when connected:
 
 **Command rate limiting**: `ensureCommandInterval()` enforces 150ms minimum between hub BLE commands to prevent overload. Uses `delay()` to pad if needed.
 
+**Deep Sleep** (after 5 min inactivity): `enterDeepSleep()` stops motor, shuts down hub, deinitializes BLE/WiFi, turns off LEDs, then enters ESP32 deep sleep. Wakes every 5 seconds via timer for LED heartbeat blink (`handleTimerWakeup()`). On wake, `setup()` checks button pin states (not `esp_sleep_get_wakeup_cause()` which is unreliable with timer+ext0 combined). LICHT button (GPIO 26) also provides immediate wakeup via `ext0`. Activity is tracked via `gLastActivityTime`, updated on button press, poti movement, and new BLE connection.
+
+**Note on ext1 wakeup**: ESP32 `ext1` with `ESP_EXT1_WAKEUP_ALL_LOW` does not work reliably on this board — external pull-downs on strapping pins cause immediate wakeup. Use `ext0` (single pin) instead.
+
 ## Available Sound Effects
 
 From `DuploTrainBaseSound` enum (in `Lpf2HubConst.h`):

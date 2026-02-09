@@ -3,6 +3,7 @@
 #include <Bounce2.h>      //bounce2
 #include <movingAvg.h>    //movingAvg
 #include <stdarg.h>       //for debugLog variadic function
+#include <esp_sleep.h>    //deep sleep and wakeup
 
 // WiFi/OTA/Telnet libraries (always available on ESP32, usage guarded by WIFI_ENABLED)
 #include <WiFi.h>
@@ -99,6 +100,11 @@ const unsigned long BAT_CHECK_INTERVAL = 5000;  // Check every 5 seconds
 unsigned long gLastBatCheck = 0;
 bool gBatteryLow = false;
 movingAvg avgBatVoltage(50);  // Moving average over 50 readings to filter ADC outliers
+
+// Deep sleep configuration
+const unsigned long INACTIVITY_TIMEOUT = 5UL * 60UL * 1000UL;  // 5 minutes in milliseconds
+const uint64_t PERIODIC_WAKE_INTERVAL_US = 5ULL * 1000000ULL;  // 5 seconds in microseconds
+unsigned long gLastActivityTime = 0;
 
 // WiFi / Telnet / OTA
 #ifdef WIFI_ENABLED
@@ -204,6 +210,59 @@ void handleWiFi()
 }
 #endif
 
+// Prepare hardware and enter deep sleep with timer + button wakeup
+void enterDeepSleep()
+{
+  debugLog("Entering deep sleep (inactivity timeout)...");
+
+  // Stop motor and shut down hub if connected (saves hub battery too)
+  if (myHub.isConnected()) {
+    gSpeed = 0;
+    ensureCommandInterval();
+    myHub.setBasicMotorSpeed(port, 0);
+    ensureCommandInterval();
+    myHub.shutDownHub();
+    delay(200);
+  }
+
+  // Deinitialize BLE stack
+  NimBLEDevice::deinit();
+
+#ifdef WIFI_ENABLED
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+#endif
+
+  // Turn off all outputs
+  digitalWrite(LED_LOW_BAT, LOW);
+  digitalWrite(LED_ONBOARD, LOW);
+
+  // Configure wakeup sources: timer (5s heartbeat) + LICHT button (ext0, immediate)
+  esp_sleep_enable_timer_wakeup(PERIODIC_WAKE_INTERVAL_US);
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_LICHT, 0);  // Wake on LOW (button pressed)
+
+  debugLog("Deep sleep now.");
+  Serial.flush();
+
+  esp_deep_sleep_start();
+  // Never reaches here. On wake, ESP32 resets and setup() runs.
+}
+
+// Timer wakeup: blink LED briefly, then re-enter deep sleep immediately.
+// Runs before any heavy initialization (no BLE, no WiFi, no Serial).
+void handleTimerWakeup()
+{
+  pinMode(LED_LOW_BAT, OUTPUT);
+
+  digitalWrite(LED_LOW_BAT, HIGH);
+  delay(100);
+  digitalWrite(LED_LOW_BAT, LOW);
+
+  esp_sleep_enable_timer_wakeup(PERIODIC_WAKE_INTERVAL_US);
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_LICHT, 0);
+  esp_deep_sleep_start();
+}
+
 Color getNextColor()
 {
     gColor++;
@@ -243,6 +302,7 @@ void handlePoti()
 
   if (speed != gSpeed)
   {
+    gLastActivityTime = millis();
     debugLog("POT: speed change %d -> %d", gSpeed, speed);
 
     if (gSpeed == 0 && speed > 0)
@@ -328,6 +388,7 @@ void handleButtons()
   {
     if(pbMusic.fell())
     {
+      gLastActivityTime = millis();
       debugLog("Button MUSIC pressed - playing HORN");
       ensureCommandInterval();
       myHub.playSound((byte)DuploTrainBaseSound::HORN);
@@ -337,6 +398,7 @@ void handleButtons()
   {
     if(pbLight.fell())
     {
+      gLastActivityTime = millis();
       Color c = getNextColor();
       debugLog("Button LIGHT pressed - setting LED color to %d", (int)c);
       ensureCommandInterval();
@@ -347,6 +409,7 @@ void handleButtons()
   {
     if(pbWater.fell())
     {
+      gLastActivityTime = millis();
       debugLog("Button WATER pressed - playing WATER_REFILL");
       ensureCommandInterval();
       myHub.playSound((byte)DuploTrainBaseSound::WATER_REFILL);
@@ -356,6 +419,7 @@ void handleButtons()
   {
     if(pbStop.fell())
     {
+      gLastActivityTime = millis();
       debugLog("Button STOP pressed - playing BRAKE and stopping motor");
       gSpeed = 0;
       gStopLatch = true;  // Block poti until it returns to center
@@ -368,9 +432,35 @@ void handleButtons()
 }
 
 void setup() {
+  // On deep sleep wakeup, check if a button is actually pressed.
+  // If not, it's a timer wakeup -> blink LED and go back to sleep.
+  // (esp_sleep_get_wakeup_cause() is unreliable with timer+ext1 combined)
+  esp_sleep_wakeup_cause_t wakeupCause = esp_sleep_get_wakeup_cause();
+  if (wakeupCause == ESP_SLEEP_WAKEUP_TIMER || wakeupCause == ESP_SLEEP_WAKEUP_EXT1) {
+    pinMode(BTN_MUSIC, INPUT_PULLUP);
+    pinMode(BTN_LICHT, INPUT_PULLUP);
+    pinMode(BTN_WASSER, INPUT_PULLUP);
+    pinMode(BTN_STOP, INPUT_PULLUP);
+    delay(5);  // Let pullups settle
+
+    bool buttonPressed = (digitalRead(BTN_MUSIC) == LOW ||
+                          digitalRead(BTN_LICHT) == LOW ||
+                          digitalRead(BTN_WASSER) == LOW ||
+                          digitalRead(BTN_STOP) == LOW);
+    if (!buttonPressed) {
+      handleTimerWakeup();  // Never returns
+    }
+  }
+
   Serial.begin(115200);
   while (!Serial) {}
   delay(200);
+
+  if (wakeupCause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+    Serial.println("Woke from deep sleep: button press");
+  } else {
+    Serial.println("Normal boot (power-on or reset)");
+  }
 
   // Set ADC resolution explicitly (ESP32 supports 9-12 bit)
   analogReadResolution(12);
@@ -401,12 +491,19 @@ void setup() {
 #ifdef WIFI_ENABLED
   setupWiFi();
 #endif
+
+  gLastActivityTime = millis();
 }
 
 void loop() {
 #ifdef WIFI_ENABLED
   handleWiFi();
 #endif
+
+  // Check for inactivity timeout -> enter deep sleep
+  if (millis() - gLastActivityTime >= INACTIVITY_TIMEOUT) {
+    enterDeepSleep();  // Never returns
+  }
 
   // Monitor battery voltage (affects LED status)
   checkBatteryVoltage();
@@ -433,6 +530,7 @@ void loop() {
 
       gWasConnected = true;
       gSpeed = 0;  // Reset speed on new connection
+      gLastActivityTime = millis();  // Reset inactivity timer on new connection
     } else {
       debugLog("Failed to connect to HUB");
     }
@@ -452,5 +550,17 @@ void loop() {
       handleButtons();
       handlePoti();
   }
+
+  // Track button activity when disconnected (for deep sleep timeout)
+  if (!myHub.isConnected()) {
+    pbMusic.update();
+    pbLight.update();
+    pbWater.update();
+    pbStop.update();
+    if (pbMusic.fell() || pbLight.fell() || pbWater.fell() || pbStop.fell()) {
+      gLastActivityTime = millis();
+    }
+  }
+
   delay(20); //small delay to avoid busy looping
 } 

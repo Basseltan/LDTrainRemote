@@ -14,6 +14,7 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 - Command rate limiting to prevent hub overload
 - Moving average filter for smooth potentiometer and battery voltage readings
 - Auto-reconnect: train can be turned on/off at any time
+- Deep sleep after 5 min inactivity (LED heartbeat blink every 5s, wake via LICHT button or any button within 5s)
 - Optional WiFi with Telnet debug output and OTA firmware updates
 
 ## Hardware
@@ -36,6 +37,7 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 | Connecting | Fast blink (100ms) |
 | Connected | Slow blink (500ms) |
 | Battery low | Very fast blink (50ms) |
+| Deep sleep | Brief blink every 5s |
 
 ## Build & Upload
 
