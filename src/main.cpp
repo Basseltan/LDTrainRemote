@@ -65,7 +65,7 @@ byte port = (byte)PoweredUpHubPort::A;
 #define BTN_LICHT 26
 #define BTN_WASSER 27
 #define BTN_STOP 14
-#define PTI_SPEED 12
+#define PTI_SPEED 34
 #define LED_ONBOARD 16
 #define BAT_VOLTAGE 32
 #define LED_LOW_BAT 33
@@ -438,11 +438,13 @@ void loop() {
     }
   }
 
-  // Detect disconnection and trigger rescan
-  if (gWasConnected && !myHub.isConnected() && !myHub.isConnecting()) {
-      debugLog("Connection lost - restarting BLE scan...");
-      gWasConnected = false;
-      gSpeed = 0;
+  // Restart BLE scan when not connected and scan has finished
+  if (!myHub.isConnected() && !myHub.isConnecting()) {
+      if (gWasConnected) {
+        debugLog("Connection lost - restarting BLE scan...");
+        gWasConnected = false;
+        gSpeed = 0;
+      }
       myHub.init();
   }
 

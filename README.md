@@ -12,7 +12,8 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 - Battery voltage monitoring with low battery warning LED
 - Status LED indicating connection state and battery level
 - Command rate limiting to prevent hub overload
-- Moving average filter for smooth potentiometer readings
+- Moving average filter for smooth potentiometer and battery voltage readings
+- Auto-reconnect: train can be turned on/off at any time
 - Optional WiFi with Telnet debug output and OTA firmware updates
 
 ## Hardware
@@ -23,7 +24,7 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 | 26 | Light button (LED color cycle) |
 | 27 | Water button (Water Refill sound) |
 | 14 | Stop button |
-| 12 | Speed potentiometer |
+| 34 | Speed potentiometer (ADC1 — GPIO 12/ADC2 conflicts with WiFi) |
 | 32 | Battery voltage (ADC via voltage divider 2x 220kOhm) |
 | 33 | Status / Low battery LED |
 
@@ -78,8 +79,8 @@ Without `credentials.h`, WiFi/Telnet/OTA are excluded from the build entirely.
 
 ## Usage
 
-1. Power on the ESP32 board (status LED lights up solid)
-2. Power on the Duplo Train (green button until it blinks)
+1. Power on the ESP32 board (status LED lights up solid, BLE scan starts)
+2. Power on the Duplo Train (green button until it blinks) — order doesn't matter, remote auto-connects
 3. Wait for automatic BLE connection (LED changes to slow blink)
 4. Use potentiometer for speed, buttons for sounds and LED
 

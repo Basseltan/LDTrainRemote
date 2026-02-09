@@ -76,7 +76,7 @@ if (myHub.isConnecting()) {
 | 26 | BTN_LICHT |
 | 27 | BTN_WASSER |
 | 14 | BTN_STOP |
-| 12 | PTI_SPEED (potentiometer) |
+| 34 | PTI_SPEED (potentiometer) |
 | 16 | LED_ONBOARD (not used) |
 | 32 | BAT_VOLTAGE (battery monitoring via ADC) |
 | 33 | LED_LOW_BAT (multi-purpose status/battery LED) |
@@ -85,7 +85,7 @@ if (myHub.isConnecting()) {
 
 **Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, warning at 3.5V for 18650 Li-Ion (AMS1117-3.3 regulator needs headroom). ADC reference calibrated to 3.54V (chip-specific). Uses `movingAvg` over 50 readings (sampled every loop iteration) to filter ESP32 ADC outliers.
 
-**Potentiometer** (GPIO 12): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1191` / `POT_MAX=2941` in `handlePoti()` — adjust if hardware gives different range.
+**Potentiometer** (GPIO 34): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1191` / `POT_MAX=2941` in `handlePoti()` — adjust if hardware gives different range.
 
 ## Code Structure
 
