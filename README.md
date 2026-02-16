@@ -99,6 +99,17 @@ Without `credentials.h`, WiFi/Telnet/OTA are excluded from the build entirely.
 
 - **Action Brick Color Detection**: The Duplo Train color sensor produces very noisy readings on normal track (mostly green, blue, yellow), making reliable detection of colored action bricks difficult. This feature is currently not implemented but planned for a future version. Experimental code is available on the `feature/color-sensor-detection` branch.
 
+## Credits
+
+- [Legoino](https://github.com/corneliusmunz/legoino) by Cornelius Munz — LEGO Powered UP Arduino library (using [Basseltan's fork](https://github.com/Basseltan/legoino) with NimBLE 2.x patches)
+- [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) by h2zero — lightweight BLE stack for ESP32
+- [Bounce2](https://github.com/thomasfredericks/Bounce2) by Thomas Fredericks — button debouncing
+- [movingAvg](https://github.com/JChristensen/movingAvg) by Jack Christensen — moving average filter
+- [ESPTelnet](https://github.com/LennartHennigs/ESPTelnet) by Lennart Hennigs — Telnet server for ESP32
+- [PlatformIO](https://platformio.org/) — build system and dependency management
+- [Arduino](https://www.arduino.cc/) — framework for ESP32 development
+- Custom `MyHub` class adapted from [legoino issue #44](https://github.com/corneliusmunz/legoino/issues/44#issuecomment-985384328)
+
 ## License
 
 GPL-3.0
