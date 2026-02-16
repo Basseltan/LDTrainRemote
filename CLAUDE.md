@@ -77,7 +77,6 @@ if (myHub.isConnecting()) {
 | 27 | BTN_WASSER |
 | 14 | BTN_STOP |
 | 34 | PTI_SPEED (potentiometer) |
-| 16 | LED_ONBOARD (not used) |
 | 32 | BAT_VOLTAGE (battery monitoring via ADC) |
 | 33 | LED_LOW_BAT (multi-purpose status/battery LED) |
 

@@ -57,8 +57,6 @@ byte port = (byte)PoweredUpHubPort::A;
 // Pin declaration (hardware mapping)
 // - BTN_*: digital buttons wired to the ESP32 (configured INPUT_PULLUP in setup()).
 // - PTI_SPEED: analog potentiometer (used to select discrete speed steps).
-// - LED_ONBOARD: status LED (fast blink = connecting, slow blink = connected)
-//   GPIO 16 for ESP32 Board with 18650 Battery Holder
 // - BAT_VOLTAGE: battery voltage monitoring via voltage divider (2x 220kOhm)
 // - LED_LOW_BAT: low battery warning LED
 // If you change pins here, update wiring/docs and any tests that read them.
@@ -67,7 +65,6 @@ byte port = (byte)PoweredUpHubPort::A;
 #define BTN_WASSER 27
 #define BTN_STOP 14
 #define PTI_SPEED 34
-#define LED_ONBOARD 16
 #define BAT_VOLTAGE 32
 #define LED_LOW_BAT 33
 
@@ -235,7 +232,6 @@ void enterDeepSleep()
 
   // Turn off all outputs
   digitalWrite(LED_LOW_BAT, LOW);
-  digitalWrite(LED_ONBOARD, LOW);
 
   // Configure wakeup sources: timer (5s heartbeat) + LICHT button (ext0, immediate)
   esp_sleep_enable_timer_wakeup(PERIODIC_WAKE_INTERVAL_US);
