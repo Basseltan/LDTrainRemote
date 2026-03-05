@@ -77,12 +77,9 @@ if (myHub.isConnecting()) {
 | 27 | BTN_WASSER |
 | 14 | BTN_STOP |
 | 34 | PTI_SPEED (potentiometer) |
-| 32 | BAT_VOLTAGE (battery monitoring via ADC) |
-| 33 | LED_LOW_BAT (multi-purpose status/battery LED) |
+| 33 | LED_STATUS (connection status LED) |
 
-**Status LED** (GPIO 33): Solid ON = disconnected, fast blink (100ms) = connecting, slow blink (500ms) = connected, very fast blink (50ms) = battery low (overrides connection status).
-
-**Battery Monitoring** (GPIO 32): Voltage divider (2x 220kOhm), checked every 5 seconds, warning at 3.5V for 18650 Li-Ion (AMS1117-3.3 regulator needs headroom). ADC reference calibrated to 3.54V (chip-specific). Uses `movingAvg` over 50 readings (sampled every loop iteration) to filter ESP32 ADC outliers.
+**Status LED** (GPIO 33): Solid ON = disconnected, fast blink (100ms) = connecting, slow blink (500ms) = connected.
 
 **Potentiometer** (GPIO 34): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1191` / `POT_MAX=2941` in `handlePoti()` — adjust if hardware gives different range.
 
@@ -100,7 +97,7 @@ The `loop()` calls these handlers when connected:
 - Auto-plays `STATION_DEPARTURE` when transitioning from stop to forward
 - Respects stop latch: ignores input until poti returns to center after STOP
 
-**`handleStatusLed()`** / **`checkBatteryVoltage()`** — Run every loop iteration regardless of connection state.
+**`handleStatusLed()`** — Runs every loop iteration regardless of connection state.
 
 **Command rate limiting**: `ensureCommandInterval()` enforces 150ms minimum between hub BLE commands to prevent overload. Uses `delay()` to pad if needed.
 

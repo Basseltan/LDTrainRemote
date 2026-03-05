@@ -57,16 +57,14 @@ byte port = (byte)PoweredUpHubPort::A;
 // Pin declaration (hardware mapping)
 // - BTN_*: digital buttons wired to the ESP32 (configured INPUT_PULLUP in setup()).
 // - PTI_SPEED: analog potentiometer (used to select discrete speed steps).
-// - BAT_VOLTAGE: battery voltage monitoring via voltage divider (2x 220kOhm)
-// - LED_LOW_BAT: low battery warning LED
+// - LED_STATUS: connection status LED
 // If you change pins here, update wiring/docs and any tests that read them.
 #define BTN_MUSIC 25
 #define BTN_LICHT 26
 #define BTN_WASSER 27
 #define BTN_STOP 14
 #define PTI_SPEED 34
-#define BAT_VOLTAGE 32
-#define LED_LOW_BAT 33
+#define LED_STATUS 33
 
 Bounce pbMusic = Bounce();
 Bounce pbLight = Bounce();
@@ -80,23 +78,13 @@ static short gColor = -1;  // Start at -1 so first increment gives 0
 static int gSpeed = 0;
 bool gStopLatch = false;   // After STOP, poti must return to 0 before new speed is accepted
 
-// LED status indicator state (now using LED_LOW_BAT for both status and battery warning)
+// LED status indicator state
 unsigned long gLedLastToggle = 0;
 bool gLedState = false;
 
 // Command rate limiting to prevent hub overload
 unsigned long gLastCommandTime = 0;
 const unsigned long COMMAND_MIN_INTERVAL = 150;  // Minimum 150ms between commands
-
-// Battery monitoring (18650 Li-Ion with voltage divider 2x 220kOhm)
-const float BAT_VOLTAGE_MIN = 3.5;        // Cutoff voltage: 3.0V
-const float BAT_VOLTAGE_DIVIDER = 2.0;    // Voltage divider ratio
-const float ADC_REFERENCE = 3.54;         // ESP32 ADC reference voltage (calibrated: 3.3 × 2.05/1.91)
-const int ADC_MAX = 4095;                 // 12-bit ADC
-const unsigned long BAT_CHECK_INTERVAL = 5000;  // Check every 5 seconds
-unsigned long gLastBatCheck = 0;
-bool gBatteryLow = false;
-movingAvg avgBatVoltage(50);  // Moving average over 50 readings to filter ADC outliers
 
 // Deep sleep configuration
 const unsigned long INACTIVITY_TIMEOUT = 5UL * 60UL * 1000UL;  // 5 minutes in milliseconds
@@ -231,7 +219,7 @@ void enterDeepSleep()
 #endif
 
   // Turn off all outputs
-  digitalWrite(LED_LOW_BAT, LOW);
+  digitalWrite(LED_STATUS, LOW);
 
   // Configure wakeup sources: timer (5s heartbeat) + LICHT button (ext0, immediate)
   esp_sleep_enable_timer_wakeup(PERIODIC_WAKE_INTERVAL_US);
@@ -248,11 +236,11 @@ void enterDeepSleep()
 // Runs before any heavy initialization (no BLE, no WiFi, no Serial).
 void handleTimerWakeup()
 {
-  pinMode(LED_LOW_BAT, OUTPUT);
+  pinMode(LED_STATUS, OUTPUT);
 
-  digitalWrite(LED_LOW_BAT, HIGH);
+  digitalWrite(LED_STATUS, HIGH);
   delay(100);
-  digitalWrite(LED_LOW_BAT, LOW);
+  digitalWrite(LED_STATUS, LOW);
 
   esp_sleep_enable_timer_wakeup(PERIODIC_WAKE_INTERVAL_US);
   esp_sleep_enable_ext0_wakeup((gpio_num_t)BTN_LICHT, 0);
@@ -319,12 +307,8 @@ void handleStatusLed()
   unsigned long now = millis();
   unsigned long blinkInterval;
 
-  // Battery low has highest priority - very fast blink (50ms)
-  if (gBatteryLow) {
-    blinkInterval = 50;
-  }
   // Connected - slow blink (500ms)
-  else if (myHub.isConnected()) {
+  if (myHub.isConnected()) {
     blinkInterval = 500;
   }
   // Connecting - fast blink (100ms)
@@ -333,7 +317,7 @@ void handleStatusLed()
   }
   // Disconnected - LED on (solid)
   else {
-    digitalWrite(LED_LOW_BAT, HIGH);
+    digitalWrite(LED_STATUS, HIGH);
     gLedState = true;
     return;
   }
@@ -341,42 +325,11 @@ void handleStatusLed()
   // Toggle LED at the determined interval
   if (now - gLedLastToggle >= blinkInterval) {
     gLedState = !gLedState;
-    digitalWrite(LED_LOW_BAT, gLedState ? HIGH : LOW);
+    digitalWrite(LED_STATUS, gLedState ? HIGH : LOW);
     gLedLastToggle = now;
   }
 }
 
-void checkBatteryVoltage()
-{
-  // Feed ADC reading into moving average every loop iteration
-  int adcValue = avgBatVoltage.reading(analogRead(BAT_VOLTAGE));
-
-  unsigned long now = millis();
-
-  // Only evaluate and log periodically
-  if (now - gLastBatCheck < BAT_CHECK_INTERVAL) {
-    return;
-  }
-
-  gLastBatCheck = now;
-
-  // Convert averaged ADC value to actual battery voltage
-  float pinVoltage = (adcValue * ADC_REFERENCE) / ADC_MAX;
-  float batteryVoltage = pinVoltage * BAT_VOLTAGE_DIVIDER;
-
-  // Debug output
-  debugLog("Battery: ADC=%d, Pin=%.2fV, Bat=%.2fV", adcValue, pinVoltage, batteryVoltage);
-
-  // Check if battery is below cutoff voltage
-  if (batteryVoltage < BAT_VOLTAGE_MIN) {
-    if (!gBatteryLow) {
-      debugLog("WARNING: Battery voltage low!");
-      gBatteryLow = true;
-    }
-  } else {
-    gBatteryLow = false;
-  }
-}
 
 void handleButtons()
 {
@@ -462,11 +415,8 @@ void setup() {
   analogReadResolution(12);
 
   // Configure status LED (also used for low battery warning)
-  pinMode(LED_LOW_BAT, OUTPUT);
-  digitalWrite(LED_LOW_BAT, LOW);
-
-  // Note: Onboard LED (GPIO 16) is not used
-  // Battery voltage monitoring pin (GPIO 32) is ADC input, no pinMode needed
+  pinMode(LED_STATUS, OUTPUT);
+  digitalWrite(LED_STATUS, LOW);
 
   // Attach buttons with INPUT_PULLUP and set debounce interval
   pbMusic.attach(BTN_MUSIC, INPUT_PULLUP);
@@ -479,7 +429,6 @@ void setup() {
   pbStop.interval(50);
 
   avgPotiSpeed.begin();
-  avgBatVoltage.begin();
 
   myHub.init();
   debugLog("myHub.init() called - BLE scan started");
@@ -501,10 +450,7 @@ void loop() {
     enterDeepSleep();  // Never returns
   }
 
-  // Monitor battery voltage (affects LED status)
-  checkBatteryVoltage();
-
-  // Update status LED (shows connection state and battery warning)
+  // Update status LED (shows connection state)
   handleStatusLed();
 
   // Handle BLE connection and reconnection

@@ -9,8 +9,7 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 - Play sounds (Horn, Water Refill, Brake, Station Departure)
 - Change LED color on the train hub
 - Emergency stop button (requires poti to return to center before resuming)
-- Battery voltage monitoring with low battery warning LED
-- Status LED indicating connection state and battery level
+- Status LED indicating connection state
 - Command rate limiting to prevent hub overload
 - Moving average filter for smooth potentiometer and battery voltage readings
 - Auto-reconnect: train can be turned on/off at any time
@@ -33,8 +32,7 @@ The project uses an ESP32 board with integrated 18650 battery holder (WeMos-comp
 | 27 | Water button (Water Refill sound) |
 | 14 | Stop button |
 | 34 | Speed potentiometer (ADC1 — GPIO 12/ADC2 conflicts with WiFi) |
-| 32 | Battery voltage (ADC via voltage divider 2x 220kOhm) |
-| 33 | Status / Low battery LED (via 1k resistor) |
+| 33 | Status LED (via 1k resistor) |
 
 ![Pin Assignment](docs/images/pinout.svg)
 
@@ -45,7 +43,6 @@ The project uses an ESP32 board with integrated 18650 battery holder (WeMos-comp
 | Disconnected | Solid ON |
 | Connecting | Fast blink (100ms) |
 | Connected | Slow blink (500ms) |
-| Battery low | Very fast blink (50ms) |
 | Deep sleep | Brief blink every 5s |
 
 ## Build & Upload
