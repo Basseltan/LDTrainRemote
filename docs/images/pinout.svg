@@ -65,21 +65,18 @@
   <text x="320" y="303" class="pin-name">GPIO35</text>
   <text x="280" y="303" class="func-left">ADC7</text>
 
-  <!-- Row 6: GPIO32 — BAT_VOLTAGE (USED) -->
-  <rect x="295" y="324" width="50" height="22" class="pin-used"/>
+  <!-- Row 6: GPIO32 — unused -->
+  <rect x="295" y="324" width="50" height="22" class="pin-rect"/>
   <text x="320" y="339" class="pin-name">GPIO32</text>
   <text x="280" y="339" class="func-left">ADC4</text>
-  <line x1="295" y1="335" x2="170" y2="335" stroke="#ff6600" class="highlight-line"/>
-  <rect x="62" y="325" width="108" height="20" fill="#e05500" class="highlight-box"/>
-  <text x="116" y="339" class="highlight-text">BAT_VOLTAGE</text>
 
-  <!-- Row 7: GPIO33 — LED_LOW_BAT (USED) -->
+  <!-- Row 7: GPIO33 — LED_STATUS (USED) -->
   <rect x="295" y="360" width="50" height="22" class="pin-used"/>
   <text x="320" y="375" class="pin-name">GPIO33</text>
   <text x="280" y="375" class="func-left">ADC5</text>
   <line x1="295" y1="371" x2="170" y2="371" stroke="#ff6600" class="highlight-line"/>
   <rect x="62" y="361" width="108" height="20" fill="#cc4400" class="highlight-box"/>
-  <text x="116" y="375" class="highlight-text">LED_LOW_BAT</text>
+  <text x="116" y="375" class="highlight-text">LED_STATUS</text>
 
   <!-- Row 8: GPIO25 — BTN_MUSIC (USED) -->
   <rect x="295" y="396" width="50" height="22" class="pin-used"/>
@@ -302,80 +299,37 @@
   <!-- Wiper wire to highlight box -->
   <line x1="-95" y1="263" x2="62" y2="263" class="wire" stroke-dasharray="4,3"/>
 
-  <!-- ====== VOLTAGE DIVIDER (GPIO32, y=335) ====== -->
-  <!--
-       BAT+
-        |
-      [220k]  R1
-        |
-        +──────── GPIO32
-        |
-      [220k]  R2
-        |
-       GND
-  -->
-  <!-- BAT+ label -->
-  <text x="-40" y="290" class="rail-label" fill="#c44" text-anchor="middle">BAT+</text>
-  <!-- Wire from BAT+ to R1 -->
-  <line x1="-40" y1="294" x2="-40" y2="303" class="wire"/>
-  <!-- R1 body -->
-  <rect x="-52" y="303" width="24" height="24" class="component" rx="2"/>
-  <text x="-40" y="318" class="comp-label-s">220k</text>
-  <!-- Wire from R1 to junction -->
-  <line x1="-40" y1="327" x2="-40" y2="335" class="wire"/>
-  <!-- Junction dot -->
-  <circle cx="-40" cy="335" r="3" class="node-dot"/>
-  <!-- Wire from junction to R2 -->
-  <line x1="-40" y1="335" x2="-40" y2="343" class="wire"/>
-  <!-- R2 body -->
-  <rect x="-52" y="343" width="24" height="24" class="component" rx="2"/>
-  <text x="-40" y="358" class="comp-label-s">220k</text>
-  <!-- Wire from R2 to GND -->
-  <line x1="-40" y1="367" x2="-40" y2="380" class="wire"/>
-  <!-- GND symbol -->
-  <line x1="-50" y1="380" x2="-30" y2="380" stroke="#555" stroke-width="2"/>
-  <line x1="-46" y1="384" x2="-34" y2="384" stroke="#555" stroke-width="1.5"/>
-  <line x1="-43" y1="387" x2="-37" y2="387" stroke="#555" stroke-width="1"/>
-  <!-- Junction wire to highlight box -->
-  <line x1="-40" y1="335" x2="62" y2="335" class="wire" stroke-dasharray="4,3"/>
-
   <!-- ====== LED + 1k RESISTOR (GPIO33, y=371) ====== -->
-  <!--
-       GPIO33 ──┐
-                 └──[1k R]──|>──── GND
-       Routed below voltage divider to avoid overlap
-  -->
-  <!-- Dashed wire from highlight box going left, then angled down -->
-  <line x1="62" y1="371" x2="15" y2="371" class="wire" stroke-dasharray="4,3"/>
-  <line x1="15" y1="371" x2="15" y2="420" class="wire" stroke-dasharray="4,3"/>
-  <line x1="15" y1="420" x2="0" y2="420" class="wire"/>
+  <!--  GPIO33 ──[1k R]──|>──── GND  -->
+  <!-- Dashed wire from highlight box to resistor -->
+  <line x1="62" y1="371" x2="10" y2="371" class="wire" stroke-dasharray="4,3"/>
   <!-- 1k Resistor body -->
-  <rect x="-32" y="412" width="32" height="16" class="component" rx="2"/>
-  <text x="-16" y="423" class="comp-label-s">1k</text>
+  <rect x="-22" y="363" width="32" height="16" class="component" rx="2"/>
+  <text x="-6" y="374" class="comp-label-s">1k</text>
   <!-- Wire from resistor to LED anode -->
-  <line x1="-32" y1="420" x2="-40" y2="420" class="wire"/>
-  <!-- LED triangle (anode=right, cathode=left, current flows left) -->
-  <polygon points="-40,411 -58,420 -40,429" fill="none" stroke="#555" stroke-width="1.5"/>
+  <line x1="-22" y1="371" x2="-30" y2="371" class="wire"/>
+  <!-- LED triangle (anode=right, cathode=left) -->
+  <polygon points="-30,362 -48,371 -30,380" fill="none" stroke="#555" stroke-width="1.5"/>
   <!-- LED cathode bar -->
-  <line x1="-58" y1="411" x2="-58" y2="429" stroke="#555" stroke-width="2"/>
+  <line x1="-48" y1="362" x2="-48" y2="380" stroke="#555" stroke-width="2"/>
   <!-- LED light rays (pointing up-left) -->
-  <line x1="-52" y1="410" x2="-48" y2="403" stroke="#555" stroke-width="0.8"/>
-  <polygon points="-50,404 -48,403 -49,407" fill="#555"/>
-  <line x1="-46" y1="409" x2="-42" y2="402" stroke="#555" stroke-width="0.8"/>
-  <polygon points="-44,403 -42,402 -43,406" fill="#555"/>
+  <line x1="-42" y1="361" x2="-38" y2="354" stroke="#555" stroke-width="0.8"/>
+  <polygon points="-40,355 -38,354 -39,358" fill="#555"/>
+  <line x1="-36" y1="360" x2="-32" y2="353" stroke="#555" stroke-width="0.8"/>
+  <polygon points="-34,354 -32,353 -33,357" fill="#555"/>
   <!-- Wire from cathode to GND -->
-  <line x1="-58" y1="420" x2="-70" y2="420" class="wire"/>
-  <line x1="-70" y1="420" x2="-70" y2="435" class="wire"/>
+  <line x1="-48" y1="371" x2="-60" y2="371" class="wire"/>
+  <line x1="-60" y1="371" x2="-60" y2="386" class="wire"/>
   <!-- GND symbol -->
-  <line x1="-80" y1="435" x2="-60" y2="435" stroke="#555" stroke-width="2"/>
-  <line x1="-76" y1="439" x2="-64" y2="439" stroke="#555" stroke-width="1.5"/>
-  <line x1="-73" y1="442" x2="-67" y2="442" stroke="#555" stroke-width="1"/>
+  <line x1="-70" y1="386" x2="-50" y2="386" stroke="#555" stroke-width="2"/>
+  <line x1="-66" y1="390" x2="-54" y2="390" stroke="#555" stroke-width="1.5"/>
+  <line x1="-63" y1="393" x2="-57" y2="393" stroke="#555" stroke-width="1"/>
 
   <!-- ============== LEGEND ============== -->
   <rect x="-120" y="880" width="900" height="50" fill="#f8f8f8" stroke="#ddd" rx="6"/>
 
   <rect x="-100" y="898" width="14" height="14" fill="#ff6600" stroke="#cc4400" stroke-width="1.5" rx="2"/>
-  <text x="-78" y="910" class="legend-text">= Used pin (7 of 40)</text>
+  <text x="-78" y="910" class="legend-text">= Used pin (6 of 40)</text>
 
   <rect x="120" y="898" width="14" height="14" fill="#c8c832" stroke="#999" stroke-width="1" rx="2"/>
   <text x="142" y="910" class="legend-text">= Unused pin</text>
