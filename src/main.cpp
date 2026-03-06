@@ -4,6 +4,7 @@
 #include <movingAvg.h>    //movingAvg
 #include <stdarg.h>       //for debugLog variadic function
 #include <esp_sleep.h>    //deep sleep and wakeup
+#include <driver/gpio.h>   //gpio_hold_en for deep sleep pin retention
 
 // WiFi/OTA/Telnet libraries (always available on ESP32, usage guarded by WIFI_ENABLED)
 #include <WiFi.h>
@@ -218,8 +219,9 @@ void enterDeepSleep()
   WiFi.mode(WIFI_OFF);
 #endif
 
-  // Turn off all outputs
+  // Turn off all outputs and hold GPIO state during deep sleep
   digitalWrite(LED_STATUS, LOW);
+  gpio_hold_en(GPIO_NUM_33);  // Keep LED pin LOW during deep sleep
 
   // Configure wakeup sources: timer (5s heartbeat) + LICHT button (ext0, immediate)
   esp_sleep_enable_timer_wakeup(PERIODIC_WAKE_INTERVAL_US);
@@ -236,6 +238,7 @@ void enterDeepSleep()
 // Runs before any heavy initialization (no BLE, no WiFi, no Serial).
 void handleTimerWakeup()
 {
+  gpio_hold_dis(GPIO_NUM_33);  // Release hold from previous deep sleep
   pinMode(LED_STATUS, OUTPUT);
 
   digitalWrite(LED_STATUS, HIGH);
@@ -294,6 +297,12 @@ void handlePoti()
       debugLog("POT: transitioning 0->forward: play STATION_DEPARTURE");
       ensureCommandInterval();
       myHub.playSound((byte)DuploTrainBaseSound::STATION_DEPARTURE);
+    }
+    else if (gSpeed == 0 && speed < 0)
+    {
+      debugLog("POT: transitioning 0->reverse: play HORN");
+      ensureCommandInterval();
+      myHub.playSound((byte)DuploTrainBaseSound::HORN);
     }
 
     gSpeed = speed;
@@ -368,6 +377,7 @@ void handleButtons()
   {
     if(pbStop.fell())
     {
+      if (gSpeed == 0) return;
       gLastActivityTime = millis();
       debugLog("Button STOP pressed - playing BRAKE and stopping motor");
       gSpeed = 0;
@@ -415,6 +425,7 @@ void setup() {
   analogReadResolution(12);
 
   // Configure status LED (also used for low battery warning)
+  gpio_hold_dis(GPIO_NUM_33);  // Release hold from previous deep sleep
   pinMode(LED_STATUS, OUTPUT);
   digitalWrite(LED_STATUS, LOW);
 

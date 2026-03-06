@@ -81,7 +81,7 @@ if (myHub.isConnecting()) {
 
 **Status LED** (GPIO 33): Solid ON = disconnected, fast blink (100ms) = connecting, slow blink (500ms) = connected.
 
-**Potentiometer** (GPIO 34): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 10 readings for smoothing. Calibration constants `POT_MIN=1191` / `POT_MAX=2941` in `handlePoti()` — adjust if hardware gives different range.
+**Potentiometer** (GPIO 34): ADC mapped to speed -100..+100 with ±20 deadzone. Uses `movingAvg` over 20 readings for smoothing. Calibration constants `POT_MIN=1151` / `POT_MAX=2923` in `handlePoti()` — adjust if hardware gives different range.
 
 ## Code Structure
 
@@ -91,17 +91,18 @@ The `loop()` calls these handlers when connected:
 - Music: plays `HORN` sound
 - Light: cycles through LED colors (11 colors via `getNextColor()`)
 - Water: plays `WATER_REFILL` sound
-- Stop: stops motor, plays `BRAKE`, sets **stop latch** (`gStopLatch`) — poti must return to center (speed=0) before new speed is accepted
+- Stop: stops motor, plays `BRAKE`, sets **stop latch** (`gStopLatch`) — only active when `gSpeed != 0`; poti must return to center (speed=0) before new speed is accepted
 
 **`handlePoti()`** — Reads potentiometer and controls motor speed:
-- Auto-plays `STATION_DEPARTURE` when transitioning from stop to forward
+- Auto-plays `STATION_DEPARTURE` when transitioning from stop to forward (gSpeed==0 → speed>0)
+- Auto-plays `HORN` when transitioning from stop to reverse (gSpeed==0 → speed<0)
 - Respects stop latch: ignores input until poti returns to center after STOP
 
 **`handleStatusLed()`** — Runs every loop iteration regardless of connection state.
 
 **Command rate limiting**: `ensureCommandInterval()` enforces 150ms minimum between hub BLE commands to prevent overload. Uses `delay()` to pad if needed.
 
-**Deep Sleep** (after 5 min inactivity): `enterDeepSleep()` stops motor, shuts down hub, deinitializes BLE/WiFi, turns off LEDs, then enters ESP32 deep sleep. Wakes every 5 seconds via timer for LED heartbeat blink (`handleTimerWakeup()`). On wake, `setup()` checks button pin states (not `esp_sleep_get_wakeup_cause()` which is unreliable with timer+ext0 combined). LICHT button (GPIO 26) also provides immediate wakeup via `ext0`. Activity is tracked via `gLastActivityTime`, updated on button press, poti movement, and new BLE connection.
+**Deep Sleep** (after 5 min inactivity): `enterDeepSleep()` stops motor, shuts down hub, deinitializes BLE/WiFi, turns off LEDs, then enters ESP32 deep sleep. Wakes every 5 seconds via timer for LED heartbeat blink (`handleTimerWakeup()`). On wake, `setup()` checks button pin states (not `esp_sleep_get_wakeup_cause()` which is unreliable with timer+ext0 combined). LICHT button (GPIO 26) also provides immediate wakeup via `ext0`. Activity is tracked via `gLastActivityTime`, updated on button press, poti movement, and new BLE connection. GPIO 33 (LED) is held LOW during deep sleep via `gpio_hold_en(GPIO_NUM_33)` to prevent floating; released with `gpio_hold_dis()` on wakeup.
 
 **Note on ext1 wakeup**: ESP32 `ext1` with `ESP_EXT1_WAKEUP_ALL_LOW` does not work reliably on this board — external pull-downs on strapping pins cause immediate wakeup. Use `ext0` (single pin) instead.
 

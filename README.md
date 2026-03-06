@@ -8,10 +8,11 @@ Remote control for LEGO Duplo Train based on ESP32 using BLE. Supports board con
 - Control train speed with potentiometer (-100 to +100)
 - Play sounds (Horn, Water Refill, Brake, Station Departure)
 - Change LED color on the train hub
-- Emergency stop button (requires poti to return to center before resuming)
+- Emergency stop button (only active while moving, requires poti to return to center before resuming)
+- Sound on direction change: Station Departure when starting forward, Horn when starting reverse
 - Status LED indicating connection state
 - Command rate limiting to prevent hub overload
-- Moving average filter for smooth potentiometer and battery voltage readings
+- Moving average filter for smooth potentiometer readings
 - Auto-reconnect: train can be turned on/off at any time
 - Deep sleep after 5 min inactivity (LED heartbeat blink every 5s, wake via LICHT button or any button within 5s)
 - Optional WiFi with Telnet debug output and OTA firmware updates
